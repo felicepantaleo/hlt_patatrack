@@ -1,15 +1,7 @@
 import FWCore.ParameterSet.Config as cms
 
-# customisation for offloading the Pixel local reconstruction to GPUs
-
-
-def customise_PixelGPU(process):
-
-    # replace the Sequences with empty ones to avoid exanding them during the (re)definition of Modules and EDAliases
-
-    process.HLTDoLocalPixelSequence = cms.Sequence()
-    process.HLTRecoPixelTracksSequence = cms.Sequence()
-
+# customisation for offloading to GPUs, common parts
+def customise_gpu_common(process):
 
     # Services
 
@@ -35,9 +27,22 @@ def customise_PixelGPU(process):
         )
     )
 
+    # done
+    return process
+
+
+# customisation for offloading the Pixel local reconstruction to GPUs
+def customise_gpu_pixel(process):
+
+    # FIXME replace the Sequences with empty ones to avoid exanding them during the (re)definition of Modules and EDAliases
+
+    process.HLTDoLocalPixelSequence = cms.Sequence()
+    process.HLTRecoPixelTracksSequence = cms.Sequence()
+    #process.HLTRecopixelvertexingSequence is unchanged
+
 
     # Event Setup
-     
+
     process.siPixelGainCalibrationForHLTGPU = cms.ESProducer("SiPixelGainCalibrationForHLTGPUESProducer",
         appendToDataLabel = cms.string('')
     )
@@ -66,6 +71,7 @@ def customise_PixelGPU(process):
 
     # Modules and EDAliases
 
+    # referenced in process.HLTDoLocalPixelSequence
     process.hltOnlineBeamSpotCUDA = cms.EDProducer("BeamSpotToCUDA",
         src = cms.InputTag("hltOnlineBeamSpot")
     )
@@ -111,6 +117,34 @@ def customise_PixelGPU(process):
         src = cms.InputTag("siPixelDigisClustersPreSplitting")
     )
 
+    process.hltSiPixelDigis = cms.EDAlias(
+        siPixelDigisClustersPreSplitting = cms.VPSet(
+            cms.PSet(
+                type = cms.string('PixelDigiedmDetSetVector')
+            )
+        ),
+        siPixelDigiErrors = cms.VPSet(
+            cms.PSet(
+                type = cms.string('DetIdedmEDCollection')
+            ),
+            cms.PSet(
+                type = cms.string('SiPixelRawDataErroredmDetSetVector')
+            ),
+            cms.PSet(
+                type = cms.string('PixelFEDChanneledmNewDetSetVector')
+            )
+        )
+    )
+
+    process.hltSiPixelClusters = cms.EDAlias(
+        siPixelDigisClustersPreSplitting = cms.VPSet(
+            cms.PSet(
+                type = cms.string('SiPixelClusteredmNewDetSetVector')
+            )
+        )
+    )
+
+    # referenced in process.HLTRecoPixelTracksSequence
     process.hltPixelTracksHitQuadruplets = cms.EDProducer("CAHitNtupletHeterogeneousEDProducer",
         heterogeneousEnabled_ = cms.untracked.PSet(
             GPUCuda = cms.untracked.bool(True),
@@ -140,33 +174,6 @@ def customise_PixelGPU(process):
         ptmin = cms.double(0.899999976158),
         trackingRegions = cms.InputTag("hltPixelTracksTrackingRegions"),
         useRiemannFit = cms.bool(False)
-    )
-
-    process.hltSiPixelDigis = cms.EDAlias(
-        siPixelDigisClustersPreSplitting = cms.VPSet(
-            cms.PSet(
-                type = cms.string('PixelDigiedmDetSetVector')
-            )
-        ),
-        siPixelDigiErrors = cms.VPSet(
-            cms.PSet(
-                type = cms.string('DetIdedmEDCollection')
-            ), 
-            cms.PSet(
-                type = cms.string('SiPixelRawDataErroredmDetSetVector')
-            ), 
-            cms.PSet(
-                type = cms.string('PixelFEDChanneledmNewDetSetVector')
-            )
-        )
-    )
-
-    process.hltSiPixelClusters = cms.EDAlias(
-        siPixelDigisClustersPreSplitting = cms.VPSet(
-            cms.PSet(
-                type = cms.string('SiPixelClusteredmNewDetSetVector')
-            )
-        )
     )
 
     process.hltPixelTracks = cms.EDProducer("PixelTrackProducerFromCUDA",
@@ -223,7 +230,15 @@ def customise_PixelGPU(process):
         + process.hltPixelTracksHitQuadruplets              # pixel ntuplets on gpu, with transfer and conversion to legacy
         + process.hltPixelTracks)                           # pixel tracks on gpu, with transfer and conversion to legacy
 
+    #process.HLTRecopixelvertexingSequence is unchanged
+
 
     # done
+    return process
 
+
+# customisation for offloading to GPUs
+def customise_gpu(process):
+    process = customise_gpu_common(process)
+    process = customise_gpu_pixel(process)
     return process
