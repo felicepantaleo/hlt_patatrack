@@ -2,9 +2,14 @@ import FWCore.ParameterSet.Config as cms
 
 # customisation for offloading the Pixel local reconstruction to GPUs
 
-# FIXME - existing modules are redefined *after* the sequences that contain them to avoid expanding them - FIXME
 
 def customise_PixelGPU(process):
+
+    # replace the Sequences with empty ones to avoid exanding them during the (re)definition of Modules and EDAliases
+
+    process.HLTDoLocalPixelSequence = cms.Sequence()
+    process.HLTRecoPixelTracksSequence = cms.Sequence()
+
 
     # Services
 
@@ -59,7 +64,7 @@ def customise_PixelGPU(process):
     )
 
 
-    # introduce new modules and aliases
+    # Modules and EDAliases
 
     process.hltOnlineBeamSpotCUDA = cms.EDProducer("BeamSpotToCUDA",
         src = cms.InputTag("hltOnlineBeamSpot")
@@ -101,7 +106,12 @@ def customise_PixelGPU(process):
         digiErrorSoASrc = cms.InputTag("siPixelDigiErrorsSoA")
     )
 
-    process.pixelTracksHitQuadruplets = cms.EDProducer("CAHitNtupletHeterogeneousEDProducer",
+    process.hltSiPixelRecHits = cms.EDProducer("SiPixelRecHitFromSOA",
+        pixelRecHitSrc = cms.InputTag("siPixelRecHitsCUDAPreSplitting"),
+        src = cms.InputTag("siPixelDigisClustersPreSplitting")
+    )
+
+    process.hltPixelTracksHitQuadruplets = cms.EDProducer("CAHitNtupletHeterogeneousEDProducer",
         heterogeneousEnabled_ = cms.untracked.PSet(
             GPUCuda = cms.untracked.bool(True),
             force = cms.untracked.string('')
@@ -130,39 +140,6 @@ def customise_PixelGPU(process):
         ptmin = cms.double(0.899999976158),
         trackingRegions = cms.InputTag("hltPixelTracksTrackingRegions"),
         useRiemannFit = cms.bool(False)
-    )
-
-
-    # redefine existing sequences
-
-    process.HLTDoLocalPixelSequence = cms.Sequence(
-          process.hltOnlineBeamSpot
-        + process.hltOnlineBeamSpotCUDA                     # beamspot on gpu
-        + process.siPixelClustersCUDAPreSplitting           # digis and clusters on gpu
-        + process.siPixelRecHitsCUDAPreSplitting            # rechits on gpu
-        + process.siPixelDigisSoA                           # copy to host
-        + process.siPixelDigisClustersPreSplitting          # convert to legacy
-        + process.siPixelDigiErrorsSoA                      # copy to host
-        + process.siPixelDigiErrors                         # convert to legacy
-        # process.hltSiPixelDigis                           # alias
-        # process.hltSiPixelClusters                        # alias
-        + process.hltSiPixelClustersCache                   # not used here, kept for compatibility with legacy sequences
-        + process.hltSiPixelRecHits )                       # convert to legacy
-
-    process.HLTRecoPixelTracksSequence = cms.Sequence(
-          process.hltPixelTracksFitter                      # not used here, kept for compatibility with legacy sequences
-        + process.hltPixelTracksFilter                      # not used here, kept for compatibility with legacy sequences
-        + process.hltPixelTracksTrackingRegions
-        + process.pixelTracksHitQuadruplets                 # pixel ntuplets on gpu, with transfer and conversion to legacy
-        + process.hltPixelTracks                            # pixel tracks on gpu, with transfer and conversion to legacy
-        + process.hltPixelVertices )                        # pixel vertices on gpu, with transfer and conversion to legacy
-
-
-    # replace the existing modules with new modules or aliases
-
-    process.hltSiPixelRecHits = cms.EDProducer("SiPixelRecHitFromSOA",
-        pixelRecHitSrc = cms.InputTag("siPixelRecHitsCUDAPreSplitting"),
-        src = cms.InputTag("siPixelDigisClustersPreSplitting")
     )
 
     process.hltSiPixelDigis = cms.EDAlias(
@@ -199,9 +176,10 @@ def customise_PixelGPU(process):
         ),
         gpuEnableConversion = cms.bool(True),
         beamSpot = cms.InputTag("hltOnlineBeamSpot"),
-        src = cms.InputTag("pixelTracksHitQuadruplets")
+        src = cms.InputTag("hltPixelTracksHitQuadruplets")
     )
 
+    # referenced in process.HLTRecopixelvertexingSequence
     process.hltPixelVertices = cms.EDProducer("PixelVertexHeterogeneousProducer",
         heterogeneousEnabled_ = cms.untracked.PSet(
             GPUCuda = cms.untracked.bool(True),
@@ -216,11 +194,34 @@ def customise_PixelGPU(process):
         eps = cms.double(0.07),
         errmax = cms.double(0.01),
         minT = cms.int32(2),
-        src = cms.InputTag("pixelTracksHitQuadruplets"),
+        src = cms.InputTag("hltPixelTracksHitQuadruplets"),
         useDBSCAN = cms.bool(False),
         useDensity = cms.bool(True),
         useIterative = cms.bool(False)
     )
+
+
+    # Sequences
+
+    process.HLTDoLocalPixelSequence = cms.Sequence(
+          process.hltOnlineBeamSpotCUDA                     # transfer the beamspot to the gpu
+        + process.siPixelClustersCUDAPreSplitting           # digis and clusters on gpu
+        + process.siPixelRecHitsCUDAPreSplitting            # rechits on gpu
+        + process.siPixelDigisSoA                           # copy to host
+        + process.siPixelDigisClustersPreSplitting          # convert to legacy
+        + process.siPixelDigiErrorsSoA                      # copy to host
+        + process.siPixelDigiErrors                         # convert to legacy
+        # process.hltSiPixelDigis                           # replaced by an alias
+        # process.hltSiPixelClusters                        # replaced by an alias
+        + process.hltSiPixelClustersCache                   # not used here, kept for compatibility with legacy sequences
+        + process.hltSiPixelRecHits)                        # convert to legacy
+
+    process.HLTRecoPixelTracksSequence = cms.Sequence(
+          process.hltPixelTracksFitter                      # not used here, kept for compatibility with legacy sequences
+        + process.hltPixelTracksFilter                      # not used here, kept for compatibility with legacy sequences
+        + process.hltPixelTracksTrackingRegions             #
+        + process.hltPixelTracksHitQuadruplets              # pixel ntuplets on gpu, with transfer and conversion to legacy
+        + process.hltPixelTracks)                           # pixel tracks on gpu, with transfer and conversion to legacy
 
 
     # done
