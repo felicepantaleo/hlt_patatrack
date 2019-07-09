@@ -27,6 +27,8 @@ def customise_gpu_common(process):
         )
     )
 
+    process.load('HeterogeneousCore.CUDAServices.NVProfilerService_cfi')
+
     # done
     return process
 
@@ -237,8 +239,106 @@ def customise_gpu_pixel(process):
     return process
 
 
+# customisation for offloading the ECAL local reconstruction to GPUs
+# TODO find automatically the list of Sequences to be updated
+def customise_gpu_ecal(process):
+
+    # FIXME replace the Sequences with empty ones to avoid exanding them during the (re)definition of Modules and EDAliases
+
+    process.HLTDoFullUnpackingEgammaEcalMFSequence = cms.Sequence()
+    process.HLTDoFullUnpackingEgammaEcalWithoutPreshowerSequence = cms.Sequence()
+    process.HLTDoFullUnpackingEgammaEcalSequence = cms.Sequence()
+
+
+    # Event Setup
+
+    process.load("RecoLocalCalo.EcalRecProducers.ecalGainRatiosGPUESProducer_cfi")
+    process.load("RecoLocalCalo.EcalRecProducers.ecalPedestalsGPUESProducer_cfi")
+    process.load("RecoLocalCalo.EcalRecProducers.ecalPulseCovariancesGPUESProducer_cfi")
+    process.load("RecoLocalCalo.EcalRecProducers.ecalPulseShapesGPUESProducer_cfi")
+    process.load("RecoLocalCalo.EcalRecProducers.ecalSamplesCorrelationGPUESProducer_cfi")
+    process.load("RecoLocalCalo.EcalRecProducers.ecalTimeBiasCorrectionsGPUESProducer_cfi")
+    process.load("RecoLocalCalo.EcalRecProducers.ecalTimeCalibConstantsGPUESProducer_cfi")
+
+
+    # Modules and EDAliases
+
+    process.hltEcalUncalibRecHitSoA = cms.EDProducer("EcalUncalibRecHitProducerGPU",
+        digisLabelEB = cms.InputTag("hltEcalDigis","ebDigis"),
+        recHitsLabelEB = cms.string('EcalUncalibRecHitsEB'),
+        digisLabelEE = cms.InputTag("hltEcalDigis","eeDigis"),
+        recHitsLabelEE = cms.string('EcalUncalibRecHitsEE'),
+        EBamplitudeFitParameters = cms.vdouble(1.138, 1.652),
+        EBtimeConstantTerm = cms.double(0.6),
+        EBtimeFitLimits_Lower = cms.double(0.2),
+        EBtimeFitLimits_Upper = cms.double(1.4),
+        EBtimeFitParameters = cms.vdouble(-2.015452, 3.130702, -12.3473, 41.88921, -82.83944, 91.01147, -50.35761, 11.05621),
+        EBtimeNconst = cms.double(28.5),
+        EEamplitudeFitParameters = cms.vdouble(1.89, 1.4),
+        EEtimeConstantTerm = cms.double(1.0),
+        EEtimeFitLimits_Lower = cms.double(0.2),
+        EEtimeFitLimits_Upper = cms.double(1.4),
+        EEtimeFitParameters = cms.vdouble(-2.390548, 3.553628, -17.62341, 67.67538, -133.213, 140.7432, -75.41106, 16.20277),
+        EEtimeNconst = cms.double(31.8),
+        amplitudeThresholdEB = cms.double(10.0),
+        amplitudeThresholdEE = cms.double(10.0),
+        outOfTimeThresholdGain12mEB = cms.double(5.0),
+        outOfTimeThresholdGain12mEE = cms.double(1000.0),
+        outOfTimeThresholdGain12pEB = cms.double(5.0),
+        outOfTimeThresholdGain12pEE = cms.double(1000.0),
+        outOfTimeThresholdGain61mEB = cms.double(5.0),
+        outOfTimeThresholdGain61mEE = cms.double(1000.0),
+        outOfTimeThresholdGain61pEB = cms.double(5.0),
+        outOfTimeThresholdGain61pEE = cms.double(1000.0),
+        kernelMinimizeThreads = cms.vuint32(32, 1, 1),
+        maxNumberHits = cms.uint32(20000),
+        shouldRunTimingComputation = cms.bool(False),
+        shouldTransferToHost = cms.bool(True)
+    )
+
+    process.hltEcalUncalibRecHit = cms.EDProducer('EcalUncalibRecHitConvertGPU2CPUFormat',
+        recHitsLabelGPUEB = cms.InputTag('hltEcalUncalibRecHitSoA', 'EcalUncalibRecHitsEB'),
+        recHitsLabelGPUEE = cms.InputTag('hltEcalUncalibRecHitSoA', 'EcalUncalibRecHitsEE'),
+        recHitsLabelCPUEB = cms.string('EcalUncalibRecHitsEB'),
+        recHitsLabelCPUEE = cms.string('EcalUncalibRecHitsEE')
+    )
+
+
+    # Sequences
+
+    process.HLTDoFullUnpackingEgammaEcalMFSequence = cms.Sequence(
+        process.hltEcalDigis
+      + process.hltEcalPreshowerDigis
+      + process.hltEcalUncalibRecHitSoA
+      + process.hltEcalUncalibRecHit
+      + process.hltEcalDetIdToBeRecovered
+      + process.hltEcalRecHit
+      + process.hltEcalPreshowerRecHit)
+
+    process.HLTDoFullUnpackingEgammaEcalWithoutPreshowerSequence = cms.Sequence(
+        process.hltEcalDigis
+      + process.hltEcalUncalibRecHitSoA
+      + process.hltEcalUncalibRecHit
+      + process.hltEcalDetIdToBeRecovered
+      + process.hltEcalRecHit)
+
+    process.HLTDoFullUnpackingEgammaEcalSequence = cms.Sequence(
+        process.hltEcalDigis
+      + process.hltEcalPreshowerDigis
+      + process.hltEcalUncalibRecHitSoA
+      + process.hltEcalUncalibRecHit
+      + process.hltEcalDetIdToBeRecovered
+      + process.hltEcalRecHit
+      + process.hltEcalPreshowerRecHit)
+
+
+    # done
+    return process
+
+
 # customisation for offloading to GPUs
 def customise_gpu(process):
     process = customise_gpu_common(process)
     process = customise_gpu_pixel(process)
+    process = customise_gpu_ecal(process)
     return process
