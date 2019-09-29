@@ -7,15 +7,7 @@ def customise_gpu_common(process):
 
     process.CUDAService = cms.Service("CUDAService",
         allocator = cms.untracked.PSet(
-            binGrowth = cms.untracked.uint32(8),
-            debug = cms.untracked.bool(False),
             devicePreallocate = cms.untracked.vuint32(),
-            enabled = cms.untracked.bool(True),
-            hostPreallocate = cms.untracked.vuint32(),
-            maxBin = cms.untracked.uint32(9),
-            maxCachedBytes = cms.untracked.uint32(0),
-            maxCachedFraction = cms.untracked.double(0.8),
-            minBin = cms.untracked.uint32(1)
         ),
         enabled = cms.untracked.bool(True),
         limits = cms.untracked.PSet(
@@ -40,7 +32,7 @@ def customise_gpu_pixel(process):
 
     process.HLTDoLocalPixelSequence = cms.Sequence()
     process.HLTRecoPixelTracksSequence = cms.Sequence()
-    #process.HLTRecopixelvertexingSequence is unchanged
+    process.HLTRecopixelvertexingSequence = cms.Sequence()
 
 
     # Event Setup
@@ -147,16 +139,7 @@ def customise_gpu_pixel(process):
     )
 
     # referenced in process.HLTRecoPixelTracksSequence
-    process.hltPixelTracksHitQuadruplets = cms.EDProducer("CAHitNtupletHeterogeneousEDProducer",
-        heterogeneousEnabled_ = cms.untracked.PSet(
-            GPUCuda = cms.untracked.bool(True),
-            force = cms.untracked.string('')
-        ),
-        gpuEnableTransfer = cms.bool(True),
-        gpuEnableConversion = cms.bool(True),
-        CAHardPtCut = cms.double(0),
-        CAPhiCut = cms.double(10),
-        CAThetaCut = cms.double(0.00125),
+    process.hltPixelTracksHitQuadruplets = cms.EDProducer("CAHitNtupletCUDA",
         CAThetaCutBarrel = cms.double(0.00200000009499),
         CAThetaCutForward = cms.double(0.00300000002608),
         dcaCutInnerTriplet = cms.double(0.15000000596),
@@ -171,46 +154,52 @@ def customise_gpu_pixel(process):
         idealConditions = cms.bool(True),
         lateFishbone = cms.bool(True),
         minHitsPerNtuplet = cms.uint32(4),
-        pixelRecHitLegacySrc = cms.InputTag("hltSiPixelRecHits"),
         pixelRecHitSrc = cms.InputTag("siPixelRecHitsCUDAPreSplitting"),
         ptmin = cms.double(0.899999976158),
-        trackingRegions = cms.InputTag("hltPixelTracksTrackingRegions"),
         useRiemannFit = cms.bool(False)
     )
 
-    process.hltPixelTracks = cms.EDProducer("PixelTrackProducerFromCUDA",
-        heterogeneousEnabled_ = cms.untracked.PSet(
-            GPUCuda = cms.untracked.bool(True),
-            force = cms.untracked.string('')
-        ),
-        gpuEnableConversion = cms.bool(True),
-        beamSpot = cms.InputTag("hltOnlineBeamSpot"),
+    process.hltPixelTracksSoA = cms.EDProducer("PixelTrackSoAFromCUDA",
         src = cms.InputTag("hltPixelTracksHitQuadruplets")
     )
 
-    # referenced in process.HLTRecopixelvertexingSequence
-    process.hltPixelVertices = cms.EDProducer("PixelVertexHeterogeneousProducer",
-        heterogeneousEnabled_ = cms.untracked.PSet(
-            GPUCuda = cms.untracked.bool(True),
-            force = cms.untracked.string('')
-        ),
-        gpuEnableTransfer = cms.bool(True),
-        gpuEnableConversion = cms.bool(True),
-        PtMin = cms.double(0.5),
-        TrackCollection = cms.InputTag("hltPixelTracks"),
+    process.hltPixelTracks = cms.EDProducer("PixelTrackProducerFromSoA",
+        pixelRecHitLegacySrc = cms.InputTag("hltSiPixelRecHits"),
         beamSpot = cms.InputTag("hltOnlineBeamSpot"),
+        trackSrc = cms.InputTag("hltPixelTracksSoA")
+    )
+
+    # referenced in process.HLTRecopixelvertexingSequence
+    process.hltPixelVerticesCUDA = cms.EDProducer("PixelVertexProducerCUDA",
+        onGPU = cms.bool(True),
+        PtMin = cms.double(0.5),
+        pixelTrackSrc = cms.InputTag("hltPixelTracks"),
         chi2max = cms.double(9),
         eps = cms.double(0.07),
         errmax = cms.double(0.01),
         minT = cms.int32(2),
-        src = cms.InputTag("hltPixelTracksHitQuadruplets"),
         useDBSCAN = cms.bool(False),
         useDensity = cms.bool(True),
         useIterative = cms.bool(False)
     )
 
+    process.hltPixelVerticesSoA = cms.EDProducer("PixelVertexSoAFromCUDA",
+        src = cms.InputTag("hltPixelVerticesCUDA")
+    )
 
+    process.hltPixelVertices = cms.EDProducer("PixelVertexProducerFromSoA",
+        src = cms.InputTag("pixelTrackSoA"),
+        beamSpot = cms.InputTag("hltOnlineBeamSpot"),
+        TrackCollection = cms.InputTag("hltPixelTracks"),
+    )
     # Sequences
+    process.hltTrimmedPixelVertices = cms.EDProducer( "PixelVertexCollectionTrimmer",
+        src = cms.InputTag( "hltPixelVertices" ),
+        fractionSumPt2 = cms.double( 0.3 ),
+        minSumPt2 = cms.double( 0.0 ),
+        PVcomparer = cms.PSet(  refToPSet_ = cms.string( "HLTPSetPvClusterComparerForIT" ) ),
+        maxVtx = cms.uint32( 100 )
+    )
 
     process.HLTDoLocalPixelSequence = cms.Sequence(
           process.hltOnlineBeamSpotCUDA                     # transfer the beamspot to the gpu
@@ -232,7 +221,12 @@ def customise_gpu_pixel(process):
         + process.hltPixelTracksHitQuadruplets              # pixel ntuplets on gpu, with transfer and conversion to legacy
         + process.hltPixelTracks)                           # pixel tracks on gpu, with transfer and conversion to legacy
 
-    #process.HLTRecopixelvertexingSequence is unchanged
+    process.HLTRecopixelvertexingSequence = cms.Sequence(
+         process.HLTRecoPixelTracksSequence
+       + process.hltPixelVerticesCUDA
+       + process.hltPixelVerticesSoA
+       + process.hltPixelVertices
+       + process.hltTrimmedPixelVertices)
 
 
     # done
@@ -342,3 +336,4 @@ def customise_gpu(process):
     process = customise_gpu_pixel(process)
     process = customise_gpu_ecal(process)
     return process
+                                                                                                                                                                                      
