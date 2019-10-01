@@ -54,12 +54,16 @@ def customise_gpu_pixel(process):
         ComponentName = cms.string('PixelCPEFast'),
         EdgeClusterErrorX = cms.double(50.0),
         EdgeClusterErrorY = cms.double(85.0),
+        DoLorentz = cms.bool(True),
         LoadTemplatesFromDB = cms.bool(True),
         MagneticFieldRecord = cms.ESInputTag(""),
         TruncatePixelCharge = cms.bool(True),
         UseErrorsFromTemplates = cms.bool(True),
         useLAAlignmentOffsets = cms.bool(False),
-        useLAWidthFromDB = cms.bool(True)
+        useLAWidthFromDB = cms.bool(True),
+        lAOffset = cms.double(0.0),
+        lAWidthBPix = cms.double(0.0),
+        lAWidthFPix = cms.double(0.0)
     )
 
 
@@ -173,7 +177,7 @@ def customise_gpu_pixel(process):
     process.hltPixelVerticesCUDA = cms.EDProducer("PixelVertexProducerCUDA",
         onGPU = cms.bool(True),
         PtMin = cms.double(0.5),
-        pixelTrackSrc = cms.InputTag("hltPixelTracks"),
+        pixelTrackSrc = cms.InputTag("hltPixelTracksHitQuadruplets"),
         chi2max = cms.double(9),
         eps = cms.double(0.07),
         errmax = cms.double(0.01),
@@ -188,7 +192,7 @@ def customise_gpu_pixel(process):
     )
 
     process.hltPixelVertices = cms.EDProducer("PixelVertexProducerFromSoA",
-        src = cms.InputTag("pixelTrackSoA"),
+        src = cms.InputTag("hltPixelVerticesSoA"),
         beamSpot = cms.InputTag("hltOnlineBeamSpot"),
         TrackCollection = cms.InputTag("hltPixelTracks"),
     )
@@ -219,6 +223,7 @@ def customise_gpu_pixel(process):
         + process.hltPixelTracksFilter                      # not used here, kept for compatibility with legacy sequences
         + process.hltPixelTracksTrackingRegions             #
         + process.hltPixelTracksHitQuadruplets              # pixel ntuplets on gpu, with transfer and conversion to legacy
+        + process.hltPixelTracksSoA
         + process.hltPixelTracks)                           # pixel tracks on gpu, with transfer and conversion to legacy
 
     process.HLTRecopixelvertexingSequence = cms.Sequence(
